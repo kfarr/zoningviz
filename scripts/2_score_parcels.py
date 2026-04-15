@@ -37,7 +37,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scenarios import load as load_scenario  # noqa: E402
 
-PARQUET_PATH = REPO_ROOT / "data" / "sf_parcels.parquet"
+DATA_DIR = REPO_ROOT / "data"
 
 # A 1-story building is roughly 12 ft. Use this as the floor when a parcel is
 # vacant or has no recorded height, so the upzone ratio doesn't divide by zero.
@@ -75,15 +75,23 @@ def is_excluded(use: str | None) -> bool:
 
 @click.command()
 @click.option(
+    "--jurisdiction", "jurisdiction_name", default="sf", show_default=True,
+    help="Which jurisdiction's parquet to score (data/{name}_parcels.parquet).",
+)
+@click.option(
     "--scenario", "scenario_name", default="current", show_default=True,
     help="Scenario module under scenarios/ — produces scenario_height / scenario_zoning.",
 )
-def main(scenario_name: str) -> None:
-    if not PARQUET_PATH.exists():
-        sys.exit(f"missing {PARQUET_PATH} — run 1_fetch_data.py first")
+def main(jurisdiction_name: str, scenario_name: str) -> None:
+    parquet_path = DATA_DIR / f"{jurisdiction_name}_parcels.parquet"
+    if not parquet_path.exists():
+        sys.exit(f"missing {parquet_path} — run 1_fetch_data.py --jurisdiction {jurisdiction_name} first")
 
-    gdf = gpd.read_parquet(PARQUET_PATH)
-    print(f"scoring {len(gdf):,} parcels with scenario={scenario_name}", file=sys.stderr)
+    gdf = gpd.read_parquet(parquet_path)
+    print(
+        f"scoring {len(gdf):,} parcels (jurisdiction={jurisdiction_name}, scenario={scenario_name})",
+        file=sys.stderr,
+    )
 
     apply_scenario = load_scenario(scenario_name)
     gdf = apply_scenario(gdf)
@@ -121,8 +129,8 @@ def main(scenario_name: str) -> None:
         file=sys.stderr,
     )
 
-    gdf.to_parquet(PARQUET_PATH)
-    print(f"wrote pdev_10yr column -> {PARQUET_PATH}", file=sys.stderr)
+    gdf.to_parquet(parquet_path)
+    print(f"wrote pdev_10yr column -> {parquet_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

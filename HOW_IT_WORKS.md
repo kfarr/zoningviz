@@ -19,16 +19,16 @@ Three scripts, in order. Each one reads what the previous one wrote.
 
 ### 1. `1_fetch_data.py` — assemble the inputs
 
-Downloads four public datasets and joins them on parcel ID:
+The script itself is a thin driver. The city-specific work lives in `jurisdictions/<name>.py`, which exposes a `fetch()` function that returns a GeoDataFrame in the standard parcel schema. For San Francisco (`jurisdictions/sf.py`) that means downloading four public datasets and joining them on parcel ID:
 
 - **Parcel geometries** (DataSF) — the actual polygon shape of every lot in the city.
 - **Land use** (DataSF) — what's currently on each lot (residential/commercial/vacant) and a rough proxy for how tall the existing building is.
 - **Zoning districts** (SF Planning ArcGIS) — the zoning code that applies today.
 - **Height districts** (SF Planning ArcGIS) — the maximum height a new building is allowed to be.
 
-For San Francisco the height/zoning layers already reflect the **Family Zoning Plan** that was signed into law in December 2025 — they're snapshotted from the live `PlanningData` MapServer, which SF Planning updated in February 2026 to match the adopted ordinance. There's no separate "before/after" overlay needed; the "after" *is* the live data. If you want to layer an additional hypothetical on top (a more aggressive proposal, a downzoning, a what-if), drop it in as `data/raw/apr2025_rezoning.geojson` and the script will spatially join it on top of the live limits.
+For SF the height/zoning layers already reflect the **Family Zoning Plan** that was signed into law in December 2025 — they're snapshotted from the live `PlanningData` MapServer, which SF Planning updated in February 2026 to match the adopted ordinance. There's no separate "before/after" overlay needed; the "after" *is* the live data.
 
-The output is a single file: `data/sf_parcels.parquet`. One row per parcel, with columns for geometry, current built height, current zoning code, scenario zoning, scenario height limit (= current limit unless an overlay was supplied), and basic lot attributes (size, corner-or-not, current use).
+The output is a single file: `data/sf_parcels.parquet`. One row per parcel, with columns for geometry, current built height, current zoning code, current height limit, and basic lot attributes (size, corner-or-not, current use). Crucially, this file contains only **facts** about the city — no scenario data. Scenarios are applied later, in-memory, by scripts 2 and 3.
 
 This file is the only thing the rest of the pipeline reads. If you commit it to the repo, anyone can run steps 2 and 3 without ever touching the raw data sources.
 
@@ -44,21 +44,27 @@ flowchart TD
     C -->|"spatial join<br/>parcel centroid"| P3[current_zoning]
     D -->|"spatial join<br/>parcel centroid<br/>strip 9999/sentinels"| P4[current_height_limit]
 
-    P1 --> M{join}
-    P2 --> M
-    P3 --> M
-    P4 --> M
+    P1 --> J["jurisdictions/sf.py<br/>fetch()"]
+    P2 --> J
+    P3 --> J
+    P4 --> J
 
-    R[("data/raw/<br/>apr2025_rezoning.geojson<br/>(optional hypothetical overlay)")]
-    R -.->|"if present:<br/>spatial join overrides limits"| M
+    J --> O[("data/sf_parcels.parquet<br/>parcel_id, geometry,<br/>current_height, current_zoning,<br/>current_height_limit,<br/>lot_sqft, is_corner, current_use")]
 
-    M --> O[("data/sf_parcels.parquet<br/>parcel_id, geometry,<br/>current_height, current_zoning,<br/>scenario_zoning, scenario_height,<br/>lot_sqft, is_corner, current_use")]
-
-    O --> S2["2_score_parcels.py<br/>adds pdev_10yr"]
-    S2 --> S3["3_simulate.py<br/>+bbox, +seed → GeoJSON"]
+    O --> S2["2_score_parcels.py<br/>--scenario X<br/>adds pdev_10yr"]
+    S2 --> S3["3_simulate.py<br/>--scenario X --bbox --seed<br/>→ GeoJSON"]
 ```
 
-Two things worth noting in the diagram that the prose glosses over: **land use is a tabular merge on `mapblklot`** — no spatial work needed because DataSF keys it by parcel ID. The other three layers are spatial joins by parcel centroid. And the **rezoning overlay is the dotted edge**: optional, only relevant if you want to model a *further* hypothetical on top of today's adopted zoning.
+Two things worth noting in the diagram that the prose glosses over: **land use is a tabular merge on `mapblklot`** — no spatial work needed because DataSF keys it by parcel ID. The other three layers are spatial joins by parcel centroid. And notice that **`jurisdictions/sf.py`** is the only SF-specific box in the whole pipeline — everything downstream just reads the normalized parquet.
+
+### Scenarios and jurisdictions
+
+Two concepts that get plugged in at different stages:
+
+- **A jurisdiction** answers "what city are we looking at?" It's responsible for fetching and normalizing raw data into the standard parcel schema. One module per city in `jurisdictions/`. Step 1 loads it; steps 2 and 3 just see the normalized parquet.
+- **A scenario** answers "what are the rules?" It takes a parcels GeoDataFrame and produces `scenario_height` and `scenario_zoning` columns. One module per scenario in `scenarios/`. The default `current` just uses the live zoning as-is; `market_street_plus_500` is a silly demo that adds 500 ft to every parcel on Market Street. Steps 2 and 3 both load the scenario and apply it in-memory.
+
+The split matters: a jurisdiction describes the world, a scenario describes a rule change. You can run any scenario against any jurisdiction (once both exist).
 
 ### 2. `2_score_parcels.py` — assign redevelopment probabilities
 

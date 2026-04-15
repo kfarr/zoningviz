@@ -36,9 +36,9 @@ cd zoningviz
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Three steps, in order:
-python scripts/1_fetch_data.py            # download parcel + zoning data
-python scripts/2_score_parcels.py         # add redevelopment probabilities
+# Three steps, in order. --jurisdiction defaults to sf; --scenario defaults to current.
+python scripts/1_fetch_data.py                              # fetch + normalize parcels
+python scripts/2_score_parcels.py                           # add redevelopment probabilities
 python scripts/3_simulate.py \
     --years 20 \
     --bbox -122.4377,37.7604,-122.4245,37.7710 \
@@ -47,9 +47,22 @@ python scripts/3_simulate.py \
 
 The third script prints a 3DStreet share URL on stdout. Pipe it to `pbcopy` (macOS) or `xargs open` and the rendering opens in your browser.
 
-## Use it for your city
+## Try a different scenario
 
-The pipeline is designed to be portable. To adapt it to another city you need four public datasets: parcel shapes, current zoning, optionally a proposed rezoning overlay, and recent building permits (for calibrating the model). See [REPLICATE_FOR_YOUR_CITY.md](REPLICATE_FOR_YOUR_CITY.md) for a step-by-step recipe.
+Scenarios are Python modules in `scenarios/`. `current` is the default (live zoning as-is). To try a silly demo that adds 500 ft to every parcel fronting Market Street:
+
+```bash
+python scripts/2_score_parcels.py --scenario market_street_plus_500
+python scripts/3_simulate.py --scenario market_street_plus_500 \
+    --years 20 --bbox -122.420,37.770,-122.405,37.785 \
+    --out examples/market_st.geojson
+```
+
+Add your own scenario by dropping a new `scenarios/my_scenario.py` with an `apply(parcels)` function. No script changes needed.
+
+## Use it for another city
+
+Jurisdictions are Python modules in `jurisdictions/`. `sf` is the only working adapter today; `dc` is a stub with a checklist of datasets to wire up. To adapt the pipeline to a new city, write a `jurisdictions/<name>.py` exposing a `fetch()` function that returns a GeoDataFrame in the standard parcel schema. See [REPLICATE_FOR_YOUR_CITY.md](REPLICATE_FOR_YOUR_CITY.md) for the recipe.
 
 ## License
 

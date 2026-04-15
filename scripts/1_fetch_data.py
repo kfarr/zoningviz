@@ -1,238 +1,42 @@
 """
 Step 1: Download public city data and join it into a single parquet file.
 
-Reads three public datasets (parcel shapes, land use, current zoning/height
-districts) and writes data/sf_parcels.parquet with the schema in
-REPLICATE_FOR_YOUR_CITY.md. The parquet contains only *facts* about the
-city — no scenario data. Scenarios are applied later by the `scenarios/`
-plug-ins that scripts 2 and 3 load.
+This script is deliberately thin — all the city-specific work lives in
+`jurisdictions/<name>.py`, each of which exposes a `fetch()` function that
+returns a GeoDataFrame matching the standard parcel schema. To add a new
+city, drop a new module there; you don't touch this script or steps 2/3.
 
-This is the only city-specific script in the pipeline. To port to another
-city, replace the URLs and the spatial-join logic here; scripts 2 and 3 read
-the parquet and don't care which city it's from.
+    python scripts/1_fetch_data.py                  # default: sf
+    python scripts/1_fetch_data.py --jurisdiction sf
 """
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
-import geopandas as gpd
-import numpy as np
-import pandas as pd
-import requests
+import click
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from jurisdictions import load as load_jurisdiction  # noqa: E402
+
 DATA_DIR = REPO_ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"
-OUT_PATH = DATA_DIR / "sf_parcels.parquet"
-
-# Parcels and land use live on DataSF Socrata.
-PARCELS_URL = "https://data.sfgov.org/resource/acdm-wktn.geojson"
-LAND_USE_URL = "https://data.sfgov.org/resource/fdfd-xptc.geojson"
-
-# Zoning + height districts live on the SF Planning ArcGIS server. The IDs
-# the README lists for DataSF Socrata are stale — those datasets were retired
-# when SF Planning moved to ArcGIS. Layers 3 and 5 of PlanningData/MapServer.
-ARCGIS_BASE = "https://sfplanninggis.org/arcgiswa/rest/services/PlanningData/MapServer"
-ZONING_URL = f"{ARCGIS_BASE}/3"
-HEIGHT_BULK_URL = f"{ARCGIS_BASE}/5"
-
-SOCRATA_PAGE = 50_000
-ARCGIS_PAGE = 2_000  # SF Planning's MapServer caps query results at 2000.
 
 
-def _read_cache(cache_name: str) -> gpd.GeoDataFrame | None:
-    cache = RAW_DIR / cache_name
-    return gpd.read_file(cache) if cache.exists() else None
-
-
-def _write_cache(gdf: gpd.GeoDataFrame, cache_name: str) -> None:
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    gdf.to_file(RAW_DIR / cache_name, driver="GeoJSON")
-
-
-def fetch_socrata_geojson(url: str, cache_name: str) -> gpd.GeoDataFrame:
-    """Page through a Socrata GeoJSON endpoint, caching the raw bytes locally."""
-    cached = _read_cache(cache_name)
-    if cached is not None:
-        return cached
-
-    frames: list[gpd.GeoDataFrame] = []
-    offset = 0
-    while True:
-        params = {"$limit": SOCRATA_PAGE, "$offset": offset}
-        print(f"  GET {url}  offset={offset}", file=sys.stderr)
-        r = requests.get(url, params=params, timeout=120)
-        r.raise_for_status()
-        gdf = gpd.read_file(io.BytesIO(r.content))
-        if gdf.empty:
-            break
-        frames.append(gdf)
-        if len(gdf) < SOCRATA_PAGE:
-            break
-        offset += SOCRATA_PAGE
-
-    out = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs=frames[0].crs)
-    _write_cache(out, cache_name)
-    return out
-
-
-def fetch_arcgis_geojson(layer_url: str, cache_name: str) -> gpd.GeoDataFrame:
-    """Page through an ArcGIS Feature/MapServer layer, returning EPSG:4326 GeoJSON."""
-    cached = _read_cache(cache_name)
-    if cached is not None:
-        return cached
-
-    frames: list[gpd.GeoDataFrame] = []
-    offset = 0
-    while True:
-        params = {
-            "where": "1=1",
-            "outFields": "*",
-            "outSR": "4326",
-            "f": "geojson",
-            "resultOffset": offset,
-            "resultRecordCount": ARCGIS_PAGE,
-        }
-        print(f"  GET {layer_url}/query  offset={offset}", file=sys.stderr)
-        r = requests.get(f"{layer_url}/query", params=params, timeout=120)
-        r.raise_for_status()
-        gdf = gpd.read_file(io.BytesIO(r.content))
-        if gdf.empty:
-            break
-        frames.append(gdf)
-        if len(gdf) < ARCGIS_PAGE:
-            break
-        offset += ARCGIS_PAGE
-
-    out = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs=frames[0].crs)
-    _write_cache(out, cache_name)
-    return out
-
-
-def largest_overlap_join(
-    left: gpd.GeoDataFrame,
-    right: gpd.GeoDataFrame,
-    right_cols: list[str],
-) -> gpd.GeoDataFrame:
-    """For each parcel in `left`, attach attributes from the polygon in `right`
-    with the largest area of overlap. Both inputs must be in the same CRS."""
-    # Use parcel centroid as a cheap, well-defined representative point.
-    pts = left.copy()
-    pts["geometry"] = left.geometry.representative_point()
-    joined = gpd.sjoin(pts, right[right_cols + ["geometry"]], how="left", predicate="within")
-    joined = joined.drop(columns=["geometry", "index_right"])
-    return left.join(joined[right_cols])
-
-
-def _estimate_height_ft(df: pd.DataFrame) -> pd.Series:
-    """Rough current-height proxy from DataSF land-use `restype`/`landuse`/`resunits`.
-    ~12 ft per story. The DataSF land-use file doesn't carry a height column, so
-    this is a placeholder until we plumb in citywide footprints/LiDAR. Treat it
-    as ±1 story.
-
-    SINGLE -> 1 story. FLATS -> 2. APTS/CONDO/SRO -> log2(resunits) + 1, capped 8.
-    Vacant landuse -> 0. MIPS/commercial -> at least 3 stories.
-    Anything else (incl. unknown) -> default 2 stories."""
-    restype = df.get("restype", pd.Series([""] * len(df))).fillna("").astype(str).str.upper()
-    landuse = df.get("landuse", pd.Series([""] * len(df))).fillna("").astype(str).str.upper()
-    resunits = pd.to_numeric(df.get("resunits"), errors="coerce").fillna(0)
-
-    stories = pd.Series(2.0, index=df.index)
-    stories[restype == "SINGLE"] = 1.0
-    stories[restype == "FLATS"] = 2.0
-    multi = restype.isin(["APTS", "CONDO", "SRO", "LIVEWORK"])
-    stories[multi] = (1.0 + np.log2(resunits.clip(lower=1).astype(float))).clip(upper=8.0)[multi]
-    nonres = landuse.isin(["MIPS", "PDR", "CIE", "RETAIL/ENT", "VISITOR", "MED", "MIXED"])
-    stories[nonres & (stories < 3)] = 3.0
-    stories[landuse == "VACANT"] = 0.0
-    stories[landuse == "OPENSPACE"] = 0.0
-    return stories * 12.0
-
-
-def main() -> None:
+@click.command()
+@click.option(
+    "--jurisdiction", "jurisdiction_name", default="sf", show_default=True,
+    help="Jurisdiction module under jurisdictions/ — fetches and normalizes parcels.",
+)
+def main(jurisdiction_name: str) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    print("Downloading parcels (DataSF)...", file=sys.stderr)
-    parcels = fetch_socrata_geojson(PARCELS_URL, "parcels.geojson")
-    print("Downloading land use (DataSF)...", file=sys.stderr)
-    land_use = fetch_socrata_geojson(LAND_USE_URL, "land_use.geojson")
-    print("Downloading zoning districts (SF Planning ArcGIS)...", file=sys.stderr)
-    zoning = fetch_arcgis_geojson(ZONING_URL, "zoning.geojson")
-    print("Downloading height districts (SF Planning ArcGIS)...", file=sys.stderr)
-    heights = fetch_arcgis_geojson(HEIGHT_BULK_URL, "height_bulk.geojson")
-
-    parcels = parcels.to_crs(epsg=4326)
-    zoning = zoning.to_crs(epsg=4326)
-    heights = heights.to_crs(epsg=4326)
-
-    # Stable parcel ID — DataSF parcels uses `mapblklot`.
-    if "mapblklot" not in parcels.columns:
-        raise RuntimeError("parcels dataset is missing the mapblklot column")
-    parcels = parcels.rename(columns={"mapblklot": "parcel_id"})
-    parcels = parcels[["parcel_id", "geometry"]].dropna(subset=["geometry"])
-    parcels = parcels.drop_duplicates(subset="parcel_id")
-
-    # Lot area in square feet — compute in a projected CRS, then store WGS84.
-    parcels_m = parcels.to_crs(epsg=3857)
-    parcels["lot_sqft"] = parcels_m.geometry.area * 10.7639
-
-    # Zoning + height districts: spatial join by centroid.
-    zone_col = "zoning_sim" if "zoning_sim" in zoning.columns else "zoning"
-    parcels = largest_overlap_join(parcels, zoning, right_cols=[zone_col])
-    parcels = parcels.rename(columns={zone_col: "current_zoning"})
-
-    # The ArcGIS height-districts layer stores the human-readable code as a
-    # string (e.g. "85-X", "85-X // 120/400-R-2") in `height`, and the numeric
-    # height in `gen_hght` (with 9999 as the open-space sentinel).
-    height_num_col = "gen_hght" if "gen_hght" in heights.columns else "height"
-    parcels = largest_overlap_join(parcels, heights, right_cols=[height_num_col])
-    parcels = parcels.rename(columns={height_num_col: "current_height_limit"})
-    parcels["current_height_limit"] = pd.to_numeric(
-        parcels["current_height_limit"], errors="coerce"
-    ).fillna(0.0)
-    # SF Planning encodes "no limit" / "see other map" as repeated-digit
-    # sentinels (1111, 2222, 5555, 6666, 7777, 8888) and 9999 for open space.
-    # Treat anything above ~1100 ft as a sentinel and drop to 0.
-    parcels.loc[parcels["current_height_limit"] > 1100, "current_height_limit"] = 0.0
-
-    # Land use joins on mapblklot directly — no spatial work needed.
-    lu = pd.DataFrame(land_use.drop(columns="geometry", errors="ignore"))
-    lu = lu.rename(columns={"mapblklot": "parcel_id"})
-    lu_cols = ["parcel_id"] + [c for c in ("landuse", "restype", "resunits") if c in lu.columns]
-    lu = lu[lu_cols].drop_duplicates(subset="parcel_id")
-    parcels = parcels.merge(lu, on="parcel_id", how="left")
-    parcels["current_use"] = parcels.get("landuse", pd.Series(dtype=str)).fillna("unknown")
-
-    # Estimate current built height. The DataSF land-use file doesn't carry a
-    # height column, so we approximate from `restype` (1F/2F/MIPS/etc) and
-    # `resunits`. A future revision should swap in a real per-parcel height
-    # source — citywide LiDAR or the SF Planning Building Footprints layer.
-    parcels["current_height"] = _estimate_height_ft(parcels)
-
-    # Cheap is_corner heuristic: parcels whose bounding box aspect ratio is
-    # close to square AND whose centroid is within ~5m of two distinct parcel
-    # neighbours. Real corner detection needs the street centerline graph; we
-    # leave that as a TODO and ship `False` for now so the column exists.
-    parcels["is_corner"] = False
-
-    out = parcels[
-        [
-            "parcel_id",
-            "geometry",
-            "current_height",
-            "current_zoning",
-            "current_height_limit",
-            "lot_sqft",
-            "is_corner",
-            "current_use",
-        ]
-    ]
-    out = gpd.GeoDataFrame(out, geometry="geometry", crs="EPSG:4326")
-    out.to_parquet(OUT_PATH)
-    print(f"wrote {len(out):,} parcels -> {OUT_PATH}", file=sys.stderr)
+    fetch = load_jurisdiction(jurisdiction_name)
+    parcels = fetch()
+    out_path = DATA_DIR / f"{jurisdiction_name}_parcels.parquet"
+    parcels.to_parquet(out_path)
+    print(f"wrote {len(parcels):,} parcels -> {out_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scenarios import load as load_scenario  # noqa: E402
 
-PARQUET_PATH = REPO_ROOT / "data" / "sf_parcels.parquet"
+DATA_DIR = REPO_ROOT / "data"
 
 FT_PER_M = 0.3048
 
@@ -51,6 +51,8 @@ def parse_bbox(s: str) -> tuple[float, float, float, float]:
 
 
 @click.command()
+@click.option("--jurisdiction", "jurisdiction_name", default="sf", show_default=True,
+              help="Which jurisdiction's parquet to simulate (data/{name}_parcels.parquet).")
 @click.option("--scenario", "scenario_name", default="current", show_default=True,
               help="Scenario module under scenarios/ (also recorded in feature properties).")
 @click.option("--years", type=int, default=20, show_default=True,
@@ -64,13 +66,14 @@ def parse_bbox(s: str) -> tuple[float, float, float, float]:
 @click.option("--developed-only/--all-parcels", default=True, show_default=True,
               help="Emit only parcels that develop in the simulated window. "
               "Off includes every parcel-in-bbox at its current height.")
-def main(scenario_name: str, years: int, bbox: str, seed: int, out_path: Path,
-         developed_only: bool) -> None:
-    if not PARQUET_PATH.exists():
-        sys.exit(f"missing {PARQUET_PATH} — run scripts 1 and 2 first")
+def main(jurisdiction_name: str, scenario_name: str, years: int, bbox: str, seed: int,
+         out_path: Path, developed_only: bool) -> None:
+    parquet_path = DATA_DIR / f"{jurisdiction_name}_parcels.parquet"
+    if not parquet_path.exists():
+        sys.exit(f"missing {parquet_path} — run scripts 1 and 2 first")
 
     minlon, minlat, maxlon, maxlat = parse_bbox(bbox)
-    gdf = gpd.read_parquet(PARQUET_PATH)
+    gdf = gpd.read_parquet(parquet_path)
     if "pdev_10yr" not in gdf.columns:
         sys.exit("pdev_10yr column missing — run 2_score_parcels.py first")
 
@@ -80,7 +83,11 @@ def main(scenario_name: str, years: int, bbox: str, seed: int, out_path: Path,
     bbox_geom = box(minlon, minlat, maxlon, maxlat)
     in_bbox = gdf.intersects(bbox_geom)
     gdf = gdf.loc[in_bbox].copy()
-    print(f"{len(gdf):,} parcels inside bbox (scenario={scenario_name})", file=sys.stderr)
+    print(
+        f"{len(gdf):,} parcels inside bbox "
+        f"(jurisdiction={jurisdiction_name}, scenario={scenario_name})",
+        file=sys.stderr,
+    )
 
     rng = np.random.default_rng(seed)
 
