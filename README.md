@@ -2,9 +2,9 @@
 
 **See how zoning scenarios could reshape your neighborhood over the next 20 years.**
 
-> **Status:** early work in progress. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) projects and attempts to add modularization to allow importing data from other locations.
+> **Status:** early work in progress. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) / [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) projects and attempts to add modularization to allow importing data from other locations, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
 
-![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero.png)
+![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
 
 *Placeholder image will show a 3D rendering of San Francisco's Duboce Triangle 20 years out.*
 
