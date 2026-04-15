@@ -6,7 +6,7 @@
 
 ![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
 
-*Placeholder image will show a 3D rendering of San Francisco's Duboce Triangle 20 years out.*
+*3D rendering of future scenario for San Francisco's Richmond District in 10 years.*
 
 ## What you're looking at
 
