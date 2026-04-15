@@ -1,9 +1,11 @@
 """
 Step 1: Download public city data and join it into a single parquet file.
 
-Reads four public datasets (parcel shapes, existing heights, current zoning,
-proposed rezoning) and writes data/sf_parcels.parquet with the schema in
-REPLICATE_FOR_YOUR_CITY.md.
+Reads three public datasets (parcel shapes, land use, current zoning/height
+districts) and writes data/sf_parcels.parquet with the schema in
+REPLICATE_FOR_YOUR_CITY.md. The parquet contains only *facts* about the
+city — no scenario data. Scenarios are applied later by the `scenarios/`
+plug-ins that scripts 2 and 3 load.
 
 This is the only city-specific script in the pipeline. To port to another
 city, replace the URLs and the spatial-join logic here; scripts 2 and 3 read
@@ -20,7 +22,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
-from shapely.geometry import box
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data"
@@ -37,11 +38,6 @@ LAND_USE_URL = "https://data.sfgov.org/resource/fdfd-xptc.geojson"
 ARCGIS_BASE = "https://sfplanninggis.org/arcgiswa/rest/services/PlanningData/MapServer"
 ZONING_URL = f"{ARCGIS_BASE}/3"
 HEIGHT_BULK_URL = f"{ARCGIS_BASE}/5"
-
-# Proposed rezoning. SF Planning publishes the April 2025 Family Rezoning maps
-# on the "Expanding Housing Choice" project page. Download the shapefile/GeoJSON
-# manually and drop it here; we can't hot-link an ArcGIS export reliably.
-REZONING_PATH = RAW_DIR / "apr2025_rezoning.geojson"
 
 SOCRATA_PAGE = 50_000
 ARCGIS_PAGE = 2_000  # SF Planning's MapServer caps query results at 2000.
@@ -156,18 +152,6 @@ def _estimate_height_ft(df: pd.DataFrame) -> pd.Series:
     return stories * 12.0
 
 
-def load_rezoning() -> gpd.GeoDataFrame | None:
-    if not REZONING_PATH.exists():
-        print(
-            f"!! No rezoning file at {REZONING_PATH}. Scenario columns will be"
-            " filled with current values as a placeholder. Download the"
-            " April 2025 Family Rezoning from sfplanning.org and save it there.",
-            file=sys.stderr,
-        )
-        return None
-    return gpd.read_file(REZONING_PATH)
-
-
 def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -179,7 +163,6 @@ def main() -> None:
     zoning = fetch_arcgis_geojson(ZONING_URL, "zoning.geojson")
     print("Downloading height districts (SF Planning ArcGIS)...", file=sys.stderr)
     heights = fetch_arcgis_geojson(HEIGHT_BULK_URL, "height_bulk.geojson")
-    rezoning = load_rezoning()
 
     parcels = parcels.to_crs(epsg=4326)
     zoning = zoning.to_crs(epsg=4326)
@@ -229,34 +212,6 @@ def main() -> None:
     # source — citywide LiDAR or the SF Planning Building Footprints layer.
     parcels["current_height"] = _estimate_height_ft(parcels)
 
-    # Scenario columns from the rezoning file (or copy current as placeholder).
-    if rezoning is not None:
-        rezoning = rezoning.to_crs(epsg=4326)
-        scen_height_col = next(
-            (c for c in ("max_height_ft", "height", "ht_lim") if c in rezoning.columns),
-            rezoning.select_dtypes("number").columns[0],
-        )
-        scen_zone_col = next(
-            (c for c in ("zoning", "district", "zone") if c in rezoning.columns),
-            None,
-        )
-        cols = [scen_height_col] + ([scen_zone_col] if scen_zone_col else [])
-        parcels = largest_overlap_join(parcels, rezoning, right_cols=cols)
-        parcels = parcels.rename(
-            columns={
-                scen_height_col: "scenario_height",
-                **({scen_zone_col: "scenario_zoning"} if scen_zone_col else {}),
-            }
-        )
-    if "scenario_height" in parcels.columns:
-        parcels["scenario_height"] = pd.to_numeric(
-            parcels["scenario_height"], errors="coerce"
-        ).fillna(parcels["current_height_limit"])
-    else:
-        parcels["scenario_height"] = parcels["current_height_limit"]
-    if "scenario_zoning" not in parcels.columns:
-        parcels["scenario_zoning"] = parcels["current_zoning"]
-
     # Cheap is_corner heuristic: parcels whose bounding box aspect ratio is
     # close to square AND whose centroid is within ~5m of two distinct parcel
     # neighbours. Real corner detection needs the street centerline graph; we
@@ -269,8 +224,7 @@ def main() -> None:
             "geometry",
             "current_height",
             "current_zoning",
-            "scenario_zoning",
-            "scenario_height",
+            "current_height_limit",
             "lot_sqft",
             "is_corner",
             "current_use",

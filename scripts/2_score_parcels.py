@@ -1,9 +1,11 @@
 """
-Step 2: Add a redevelopment-probability column to the parcel parquet.
+Step 2: Apply a scenario and add a redevelopment-probability column.
 
-Reads data/sf_parcels.parquet (written by 1_fetch_data.py), computes a
-`pdev_10yr` for each parcel using a transparent heuristic, and writes the
-result back.
+Reads data/sf_parcels.parquet (written by 1_fetch_data.py), calls the
+scenario module to produce `scenario_height` / `scenario_zoning`, then
+computes a `pdev_10yr` for each parcel using a transparent heuristic, and
+writes the result back. Re-run with a different `--scenario` to switch
+scenarios; the last run wins.
 
 Heuristic v1 — deliberately ~30 lines of math you can read end to end:
 
@@ -25,11 +27,16 @@ import math
 import sys
 from pathlib import Path
 
+import click
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from scenarios import load as load_scenario  # noqa: E402
+
 PARQUET_PATH = REPO_ROOT / "data" / "sf_parcels.parquet"
 
 # A 1-story building is roughly 12 ft. Use this as the floor when a parcel is
@@ -66,12 +73,20 @@ def is_excluded(use: str | None) -> bool:
     return any(tag in u for tag in EXCLUDED_USES)
 
 
-def main() -> None:
+@click.command()
+@click.option(
+    "--scenario", "scenario_name", default="current", show_default=True,
+    help="Scenario module under scenarios/ — produces scenario_height / scenario_zoning.",
+)
+def main(scenario_name: str) -> None:
     if not PARQUET_PATH.exists():
         sys.exit(f"missing {PARQUET_PATH} — run 1_fetch_data.py first")
 
     gdf = gpd.read_parquet(PARQUET_PATH)
-    print(f"scoring {len(gdf):,} parcels", file=sys.stderr)
+    print(f"scoring {len(gdf):,} parcels with scenario={scenario_name}", file=sys.stderr)
+
+    apply_scenario = load_scenario(scenario_name)
+    gdf = apply_scenario(gdf)
 
     envelope_now = np.maximum(gdf["current_height"].fillna(0.0), BASELINE_FT)
     envelope_after = np.maximum(gdf["scenario_height"].fillna(0.0), envelope_now)

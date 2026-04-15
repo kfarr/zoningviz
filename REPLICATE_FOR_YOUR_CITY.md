@@ -1,12 +1,12 @@
 # Replicating ZoningViz for your city
 
-ZoningViz is built to be portable. The simulation logic and the 3D viewer don't care which city you're in — all the city-specific work is in **assembling four public datasets** and writing a small adapter that joins them.
+ZoningViz is built to be portable. The simulation logic and the 3D viewer don't care which city you're in — all the city-specific work is in **assembling three public datasets** (plus an optional fourth) and writing a small adapter that joins them.
 
 This doc is the recipe. It will eventually become a blog post.
 
 ## What you need from your city
 
-Four datasets. All four are public for most US cities; the formats vary.
+Three required datasets, plus an optional fourth if you want to model a hypothetical *on top of* what's already adopted. All are public for most US cities; the formats vary.
 
 ### 1. Parcel geometries
 
@@ -32,15 +32,16 @@ What's allowed today on each parcel — at minimum a zoning district code and a 
 
 - **What to look for:** "zoning districts," "height and bulk districts," "zoning map."
 - **Where to find it:** planning department open data.
-- **SF example:** [Zoning Districts](https://data.sfgov.org/Geographic-Locations-and-Boundaries/Zoning-Districts/3i9t-bs7t) and [Height and Bulk Districts](https://data.sfgov.org/Geographic-Locations-and-Boundaries/Height-and-Bulk-Districts/xn5w-wuah).
+- **SF example:** SF Planning's [PlanningData ArcGIS service](https://sfplanninggis.org/arcgiswa/rest/services/PlanningData/MapServer) — layer 3 (Zoning Districts) and layer 5 (Height and Bulk Districts). These are the live, authoritative layers and already reflect the December 2025 Family Zoning Plan.
 - **Gotcha:** zoning is usually a polygon layer that doesn't line up exactly with parcels. Spatial-join with "largest overlap wins" per parcel.
+- **Gotcha:** if your city just passed a rezoning, double-check whether the published layer is the *adopted* version or still the *pre-adoption* one. SF's GIS team updated the live layers ~2 months after the ordinance passed.
 
-### 4. The proposed rezoning
+### 4. (Optional) A hypothetical overlay
 
-The shapefile for whatever zoning change you want to model. This is the "after" picture.
+If you want to model a *what-if* on top of the currently adopted rules — a more aggressive proposal, a downzoning, an alternative scenario — drop a polygon file with new height limits and the adapter will spatial-join it on top of the live limits.
 
-- **What to look for:** the planning department's project page for the rezoning effort. Look for "draft maps," "proposed zoning," or supporting GIS files.
-- **SF example:** SF Planning's [Expanding Housing Choice](https://sfplanning.org/project/expanding-housing-choice) page publishes the April 2025 Family Rezoning maps as shapefiles in addition to PDFs.
+- **What to look for:** the planning department's project page for any in-flight rezoning effort. Look for "draft maps," "proposed zoning," or supporting GIS files.
+- **SF example:** none currently — the headline scenario already lives in dataset #3 above. If you want to model something *beyond* the Family Zoning Plan, drop a GeoJSON at `data/raw/apr2025_rezoning.geojson` and step 1 will pick it up automatically.
 - **Gotcha:** rezonings often have rules that aren't on the map — corner-lot bonuses, density bonuses for affordable housing, special transit-area overlays. Read the policy text and encode those rules explicitly in the adapter. Comment them with citations to the policy doc so a future reader can audit.
 
 ### Optional fifth: recent building permits
@@ -60,8 +61,8 @@ One file: `scripts/1_fetch_data.py`, adapted for your city's data sources. Input
 | `geometry`        | polygon       | parcel shape (in WGS84)                      |
 | `current_height`  | float (feet)  | existing built height                        |
 | `current_zoning`  | string        | zoning district code today                   |
-| `scenario_zoning` | string        | zoning district code under the proposal      |
-| `scenario_height` | float (feet)  | height limit under the proposal              |
+| `scenario_zoning` | string        | zoning code being modeled (= current unless an overlay was supplied) |
+| `scenario_height` | float (feet)  | height limit being modeled (= current unless an overlay was supplied) |
 | `lot_sqft`        | float         | lot area in square feet                      |
 | `is_corner`       | bool          | derived from parcel geometry vs street grid  |
 | `current_use`     | string        | residential / commercial / institutional / … |

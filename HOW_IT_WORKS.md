@@ -19,16 +19,46 @@ Three scripts, in order. Each one reads what the previous one wrote.
 
 ### 1. `1_fetch_data.py` — assemble the inputs
 
-Downloads four public datasets from DataSF and joins them on parcel ID:
+Downloads four public datasets and joins them on parcel ID:
 
-- **Parcel geometries** — the actual polygon shape of every lot in the city.
-- **Existing built heights** — how tall the building currently on each lot is. (Some lots are empty; those have height zero.)
-- **Current zoning + height districts** — what's allowed today.
-- **Proposed rezoning** — the shapefile for the zoning change you want to model. For SF this is the April 2025 Family Rezoning, published by SF Planning.
+- **Parcel geometries** (DataSF) — the actual polygon shape of every lot in the city.
+- **Land use** (DataSF) — what's currently on each lot (residential/commercial/vacant) and a rough proxy for how tall the existing building is.
+- **Zoning districts** (SF Planning ArcGIS) — the zoning code that applies today.
+- **Height districts** (SF Planning ArcGIS) — the maximum height a new building is allowed to be.
 
-The output is a single file: `data/sf_parcels.parquet`. One row per parcel, with columns for geometry, current height, current zoning, scenario zoning, scenario height limit, and basic lot attributes (size, corner-or-not, residential-or-not).
+For San Francisco the height/zoning layers already reflect the **Family Zoning Plan** that was signed into law in December 2025 — they're snapshotted from the live `PlanningData` MapServer, which SF Planning updated in February 2026 to match the adopted ordinance. There's no separate "before/after" overlay needed; the "after" *is* the live data. If you want to layer an additional hypothetical on top (a more aggressive proposal, a downzoning, a what-if), drop it in as `data/raw/apr2025_rezoning.geojson` and the script will spatially join it on top of the live limits.
+
+The output is a single file: `data/sf_parcels.parquet`. One row per parcel, with columns for geometry, current built height, current zoning code, scenario zoning, scenario height limit (= current limit unless an overlay was supplied), and basic lot attributes (size, corner-or-not, current use).
 
 This file is the only thing the rest of the pipeline reads. If you commit it to the repo, anyone can run steps 2 and 3 without ever touching the raw data sources.
+
+```mermaid
+flowchart TD
+    A[("DataSF: acdm-wktn<br/>parcels.geojson<br/>~163k polygons")]
+    B[("DataSF: fdfd-xptc<br/>land_use.geojson<br/>landuse, restype, resunits")]
+    C[("SF Planning ArcGIS<br/>PlanningData/3<br/>Zoning Districts<br/>zoning_sim")]
+    D[("SF Planning ArcGIS<br/>PlanningData/5<br/>Height Districts<br/>gen_hght")]
+
+    A -->|"keep mapblklot, geometry<br/>compute lot_sqft (EPSG:3857)"| P1[parcel_id, geometry, lot_sqft]
+    B -->|"tabular merge<br/>on mapblklot"| P2[current_use<br/>+ derived current_height]
+    C -->|"spatial join<br/>parcel centroid"| P3[current_zoning]
+    D -->|"spatial join<br/>parcel centroid<br/>strip 9999/sentinels"| P4[current_height_limit]
+
+    P1 --> M{join}
+    P2 --> M
+    P3 --> M
+    P4 --> M
+
+    R[("data/raw/<br/>apr2025_rezoning.geojson<br/>(optional hypothetical overlay)")]
+    R -.->|"if present:<br/>spatial join overrides limits"| M
+
+    M --> O[("data/sf_parcels.parquet<br/>parcel_id, geometry,<br/>current_height, current_zoning,<br/>scenario_zoning, scenario_height,<br/>lot_sqft, is_corner, current_use")]
+
+    O --> S2["2_score_parcels.py<br/>adds pdev_10yr"]
+    S2 --> S3["3_simulate.py<br/>+bbox, +seed → GeoJSON"]
+```
+
+Two things worth noting in the diagram that the prose glosses over: **land use is a tabular merge on `mapblklot`** — no spatial work needed because DataSF keys it by parcel ID. The other three layers are spatial joins by parcel centroid. And the **rezoning overlay is the dotted edge**: optional, only relevant if you want to model a *further* hypothetical on top of today's adopted zoning.
 
 ### 2. `2_score_parcels.py` — assign redevelopment probabilities
 
