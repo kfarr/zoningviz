@@ -1,6 +1,6 @@
 # ZoningViz
 
-**See how zoning scenarios could reshape your neighborhood over the next 20 years.**
+**See how zoning scenarios could reshape your neighborhood over the next 10+ years.**
 
 > **Status:** early work in progress. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) / [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) projects and attempts to add modularization to allow importing data from other locations, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
 
@@ -10,7 +10,7 @@
 
 ## What you're looking at
 
-This picture is a 3D rendering of buildings generated from a model that explores what could be built in the next 20 years under the city's current zoning rules. SF's [Family Zoning Plan](https://sfplanning.org/sf-family-zoning-plan), signed into law December 2025, raised height limits along transit corridors and on commercial streets across the north and west sides of the city. This pipeline takes those rules at face value and asks: *if developers actually built to what's now allowed, what would the neighborhood look like?*
+This picture is a 3D rendering of buildings generated from a model that explores what could be built in the next 10 years under the city's current zoning rules. SF's [Family Zoning Plan](https://sfplanning.org/sf-family-zoning-plan), signed into law December 2025, raised height limits along transit corridors and on commercial streets across the north and west sides of the city. This pipeline takes those rules at face value and asks: *if developers actually built to what's now allowed, what would the neighborhood look like?*
 
 This is a scenario builder, not a forecast. It exists to make abstract zoning policy visible and discussable. Different assumptions produce different pictures, change the assumptions and see what happens.
 
