@@ -93,6 +93,30 @@ Write the result as a GeoJSON FeatureCollection where each feature is a parcel p
 
 A `--seed` flag makes runs reproducible. Running with three different seeds and comparing the pictures is a good way to build intuition for how much of what you're seeing is the model versus the dice.
 
+## From massing to photo: the AI render prompt
+
+3DStreet renders the GeoJSON imported scenario as a 3D scene where every developed parcel is a solid-colored prism. To turn a screenshot of that scene into something you can put in a deck or share publicly, we use 3DStreet to combine the building prisms with 3D maps, and then generate a snapshot image to process with an image-to-image model (we use Nano Banana / Gemini's image edit for most of our renders).
+
+The prompt that has worked across dozens of scenes:
+
+> Replace the solid color boxes with photorealistic dense multi-unit residential housing while retaining the core geometry unmodified.
+
+Two variants that also worked well:
+- *Replace the solid color boxes with multi-unit residential housing and increase the photorealism of this photo without modifying the core geometry.*
+- *Create a realistic rendering of proposed buildings indicated by the brightly colored artificial boxes, replace them with modern dense multi-unit residential housing.*
+
+### Customizing the AR render prompt
+
+Consider customizing your prompts to match local architecture patterns or facades. 
+- *Upscale the low fidelity 3d tiles imagery to fix (the bridge and foliage) while replacing the solid color boxes with photorealistic dense multi-unit residential housing*
+
+Here are a few lessons we learned as we iterated on these image-to-image prompts:
+- **Distinctive descriptor for the boxes.** "solid color" or "brightly colored artificial" both work. "primary color" didn't work as well, perhaps because real life things like awnings and signage in the scene are also primary-colored, so the model wasn't as stringent about always following that guidance and ended up changing less than desired.
+- **Realism stated explicitly.** "photorealistic" or "realistic rendering" appears in both successes. Without it the model tends to treat the cartoon massing as the intended style and barely re-renders.
+- **Geospatial upscaling** You can include explicit instructions to fix geospatial elements (land mass, buildings, roads, other structures) when the 3d tiles are insufficient to clearly show a key landmark
+
+The main failure mode we hit was negation. Appending to your prompt something like "ONLY replace the color boxes, do not replace existing housing" did not improve results and sometimes produced a worse result. Our practical takeaway is: spend the ~dozen-word content budget on what you want the model to do, not on what you want it to avoid.
+
 ## Known simplifications
 
 Things the current pipeline deliberately does *not* model, documented up front so they don't surprise you:
