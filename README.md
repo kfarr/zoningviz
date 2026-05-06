@@ -2,7 +2,7 @@
 
 **See how zoning scenarios could reshape your neighborhood over the next 10+ years.**
 
-> **Status:** early work in progress. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) / [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) projects and attempts to add modularization to allow importing data from other locations, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
+> **Status:** early work in progress, combo of vibecoding and handcoding. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) / [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) projects and attempts to add modularization to allow importing data from other locations, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
 
 ![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
 
@@ -12,7 +12,7 @@
 
 This picture is a 3D rendering of buildings generated from a model that explores what could be built in the next 10 years under the city's current zoning rules. SF's [Family Zoning Plan](https://sfplanning.org/sf-family-zoning-plan), signed into law December 2025, raised height limits along transit corridors and on commercial streets across the north and west sides of the city. This pipeline takes those rules at face value and asks: *if developers actually built to what's now allowed, what would the neighborhood look like?*
 
-This is a scenario builder, not a forecast. It exists to make abstract zoning policy visible and discussable. Different assumptions produce different pictures, change the assumptions and see what happens.
+This is a scenario builder that changes output based on the variables you provide it, but it is not some sort of oracle that perfectly predicts the future. It exists to make abstract zoning policy visible and discussable. Different assumptions produce different pictures, change the assumptions and see what happens.
 
 ## Try it
 
@@ -31,7 +31,7 @@ For depth on each step, including the assumptions and where they could be wrong,
 ## Run it yourself
 
 ```bash
-git clone https://github.com/YOUR-USER/zoningviz
+git clone https://github.com/kfarr/zoningviz
 cd zoningviz
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -45,7 +45,7 @@ python scripts/3_simulate.py \
     --out examples/duboce.geojson
 ```
 
-The third script prints a 3DStreet share URL on stdout. Pipe it to `pbcopy` (macOS) or `xargs open` and the rendering opens in your browser.
+The third script prints a 3DStreet share URL on stdout. Copy / paste it in your browser, or pipe it to `pbcopy` (macOS) or `xargs open`.
 
 ## Try a different scenario
 
