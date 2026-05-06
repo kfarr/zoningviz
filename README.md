@@ -2,7 +2,7 @@
 
 **See how zoning scenarios could reshape your neighborhood over the next 10+ years.**
 
-> **Status:** early work in progress, combo of vibecoding and handcoding. This methodology combines concepts from San Francisco's [rezoner](https://github.com/sdamerdji/rezoner) / [cityscaper](https://github.com/emunsing/cityscaper) / [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) projects and attempts to add modularization to allow importing data from other locations, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
+> **Status:** early work in progress, combo of vibecoding and handcoding. This methodology builds on parcel-simulation work by [Salim Damerdji](https://github.com/sdamerdji) ([rezoner](https://github.com/sdamerdji/rezoner)), 3D building-envelope and mesh-rendering work by [Eric Munsing](https://github.com/emunsing) ([cityscaper](https://github.com/emunsing/cityscaper)), and the [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) project. This project adds modularization to import data from other jurisdictions, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
 
 ![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
 
@@ -22,9 +22,9 @@ This is a scenario builder that changes output based on the variables you provid
 
 1. **Start with the parcel data.** Download the shape of every parcel (lot) in the city from public data.
 2. **Add the rules.** For each parcel, look up the current zoning, mainly the maximum height a new building can be.
-3. **Score each parcel.** Some lots are much more likely to be redeveloped than others. A parking lot next to transit with a big gap between its current building and what the zoning now allows is a strong candidate; a recently-built apartment is not. Each parcel gets a probability.
+3. **Score each parcel.** Some lots are much more likely to be redeveloped than others. A parking lot next to transit with a big gap between its current building and what the zoning now allows is a strong candidate; a recently-built apartment is not. Each parcel gets a probability — the scoring model and the year-by-year simulation that follows are adapted from [Salim Damerdji](https://github.com/sdamerdji)'s [rezoner](https://github.com/sdamerdji/rezoner).
 4. **Roll the dice, year by year.** For each parcel, each year, check whether it gets redeveloped that year based on its probability. This produces a list of new buildings with heights and years.
-5. **Show it in 3D.** Hand the result to [3DStreet](https://3dstreet.app), which extrudes the buildings superimposed on real world maps to generate realistic visuals.
+5. **Show it in 3D.** Hand the result to [3DStreet](https://3dstreet.app), which extrudes the buildings superimposed on real world maps to generate realistic visuals. The building-envelope approach here follows [Eric Munsing](https://github.com/emunsing)'s [cityscaper](https://github.com/emunsing/cityscaper), which takes a parallel path through Blender and Google Earth.
 
 For depth on each step, including the assumptions and where they could be wrong, see [HOW_IT_WORKS.md](HOW_IT_WORKS.md).
 
