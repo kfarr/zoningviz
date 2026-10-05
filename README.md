@@ -4,7 +4,7 @@
 
 > **Status:** early work in progress, combo of vibecoding and handcoding. This methodology builds on parcel-simulation work by [Salim Damerdji](https://github.com/sdamerdji) ([rezoner](https://github.com/sdamerdji/rezoner)), 3D building-envelope and mesh-rendering work by [Eric Munsing](https://github.com/emunsing) ([cityscaper](https://github.com/emunsing/cityscaper)), and the [FoglineSF Family Zoning Plan](https://github.com/FoglineSF/sf-family-zoning-plan) project. This project adds modularization to import data from other jurisdictions, handle elevation, and export to 3DStreet for 3D map compositing and AI rendering.
 
-![A 3D rendering of Duboce Triangle under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
+![A 3D rendering of Richmond District under SF's Family Zoning Plan](docs/hero-zoningviz.webp)
 
 *3D rendering of future scenario for San Francisco's Richmond District in 10 years.*
 
